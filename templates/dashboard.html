@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - English Course Builder{% endblock %}
+
+{% block content %}
+<div class="container my-5">
+    <!-- Header -->
+    <div class="row mb-5">
+        <div class="col-12 text-center">
+            <h1 class="display-4 mb-3">
+                <i class="fas fa-book-open text-primary me-3"></i>
+                English Communication Course Builder
+            </h1>
+            <p class="lead text-muted">
+                Create engaging educational content with AI-powered content generation
+            </p>
+        </div>
+    </div>
+
+    <!-- API Key Input -->
+    <div class="row mb-5">
+        <div class="col-lg-8 mx-auto">
+            <div class="card bg-dark border-secondary">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-key me-2"></i>
+                        Gemini API Configuration
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label for="apiKey" class="form-label">Gemini API Key</label>
+                        <input type="password" class="form-control" id="apiKey" 
+                               placeholder="Enter your Gemini API key">
+                        <div class="form-text">
+                            Your API key is stored locally and never sent to our servers. Get your key from <a href="https://aistudio.google.com/app/apikey" target="_blank">Google AI Studio</a>.
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-success" onclick="saveApiKey()">
+                        <i class="fas fa-save me-2"></i>
+                        Save API Key
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Topics Grid -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h2 class="mb-4">
+                <i class="fas fa-list me-2"></i>
+                Available Topics
+            </h2>
+            <p class="text-muted mb-4">
+                Select a topic to start generating educational content. You can edit topics in the <code>static/js/topics.js</code> file.
+            </p>
+        </div>
+    </div>
+
+    <div class="row" id="topicsGrid">
+        <!-- Topics will be loaded here by JavaScript -->
+    </div>
+
+    <!-- Add New Topic Info -->
+    <div class="row mt-5">
+        <div class="col-12">
+            <div class="alert alert-info">
+                <h5 class="alert-heading">
+                    <i class="fas fa-plus-circle me-2"></i>
+                    Adding New Topics
+                </h5>
+                <p class="mb-0">
+                    To add new topics, edit the <code>static/js/topics.js</code> file and add your custom topics 
+                    with prompts and temperature settings. The changes will be reflected immediately.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load topics on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadTopics();
+    loadSavedApiKey();
+});
+
+function loadTopics() {
+    const topicsGrid = document.getElementById('topicsGrid');
+    
+    if (typeof topics === 'undefined') {
+        topicsGrid.innerHTML = `
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Topics data not found. Please check if topics.js is loaded correctly.
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    topicsGrid.innerHTML = '';
+    
+    topics.forEach(topic => {
+        const topicCard = `
+            <div class="col-lg-4 col-md-6 mb-4">
+                <div class="card h-100 bg-dark border-secondary topic-card" onclick="selectTopic('${topic.id}')">
+                    <div class="card-body">
+                        <h5 class="card-title">
+                            <i class="${topic.icon} me-2 text-primary"></i>
+                            ${topic.title}
+                        </h5>
+                        <p class="card-text text-muted">${topic.description}</p>
+                        <div class="row">
+                            <div class="col-6">
+                                <small class="text-muted">
+                                    <i class="fas fa-thermometer-half me-1"></i>
+                                    Temp: ${topic.temperature}
+                                </small>
+                            </div>
+                            <div class="col-6 text-end">
+                                <small class="text-muted">
+                                    <i class="fas fa-clock me-1"></i>
+                                    ${topic.estimatedTime}
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-transparent border-secondary">
+                        <small class="text-primary">
+                            <i class="fas fa-arrow-right me-1"></i>
+                            Click to generate content
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `;
+        topicsGrid.innerHTML += topicCard;
+    });
+}
+
+function selectTopic(topicId) {
+    // Check if API key is saved
+    const apiKey = localStorage.getItem('gemini_api_key');
+    if (!apiKey) {
+        alert('Please save your Gemini API key first.');
+        document.getElementById('apiKey').focus();
+        return;
+    }
+    
+    // Navigate to generator page
+    window.location.href = `/generator/${topicId}`;
+}
+
+function saveApiKey() {
+    const apiKey = document.getElementById('apiKey').value.trim();
+    if (!apiKey) {
+        alert('Please enter a valid API key.');
+        return;
+    }
+    
+    localStorage.setItem('gemini_api_key', apiKey);
+    
+    // Show success message
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-success alert-dismissible fade show mt-3';
+    alertDiv.innerHTML = `
+        <i class="fas fa-check-circle me-2"></i>
+        API key saved successfully!
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.querySelector('.card-body').appendChild(alertDiv);
+}
+
+function loadSavedApiKey() {
+    const savedKey = localStorage.getItem('gemini_api_key');
+    if (savedKey) {
+        document.getElementById('apiKey').value = savedKey;
+    }
+}
+</script>
+{% endblock %}
