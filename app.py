@@ -38,12 +38,8 @@ def generator(topic_id):
 
 @app.route('/api/generate-content', methods=['POST'])
 def generate_content():
-    """Generate educational content using Gemini Pro model"""
     try:
         data = request.json
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-
         api_key = data.get('api_key')
         prompt = data.get('prompt')
         temperature = float(data.get('temperature', 0.7))
@@ -54,57 +50,23 @@ def generate_content():
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
 
-        # ✅ Configure Gemini
-        configure_gemini(api_key)
-
-        # Enhance prompt for structured output
+        model = get_gemini_model(api_key)
         enhanced_prompt = enhance_prompt_for_content_type(prompt, content_type)
-
-        # ✅ Use Gemini 1.5 Pro model
-        model = genai.GenerativeModel("gemini-1.5-flash")
-
 
         response = model.generate_content(
             enhanced_prompt,
-            generation_config={"temperature": temperature}
+            generation_config={"temperature": temperature},
         )
 
-        response_content = response.text
-        if not response_content:
+        if not response or not response.text:
             raise ValueError("Empty response from Gemini")
 
-        content = json.loads(response_content)
-
-        return jsonify({
-            'success': True,
-            'content': content,
-            'content_type': content_type
-        })
+        content = json.loads(response.text)
+        return jsonify({'success': True, 'content': content, 'content_type': content_type})
 
     except Exception as e:
-        error_message = str(e)
-        logging.error(f"Error generating content: {error_message}")
-
-        # Handle API errors gracefully
-        if "429" in error_message or "quota" in error_message.lower() or "resource_exhausted" in error_message.lower():
-            sample_content = generate_sample_content(data.get('content_type', 'mcq'))
-            return jsonify({
-                'success': True,
-                'content': sample_content,
-                'content_type': content_type,
-                'is_sample': True,
-                'message': 'Gemini API quota exceeded. Showing sample content for demonstration.'
-            })
-        elif "invalid_api_key" in error_message.lower() or "unauthenticated" in error_message.lower():
-            return jsonify({
-                'error': 'Invalid Gemini API key. Please check your API key in the dashboard.',
-                'error_type': 'invalid_key'
-            }), 401
-        else:
-            return jsonify({
-                'error': f'Failed to generate content: {error_message}',
-                'error_type': 'generation_error'
-            }), 500
+        logging.error(f"Error generating content: {e}")
+        return jsonify({'error': f'Failed to generate content: {str(e)}'}), 500
 
 
 def enhance_prompt_for_content_type(prompt, content_type):
