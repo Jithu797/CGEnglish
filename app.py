@@ -58,15 +58,16 @@ def generate_content():
         enhanced_prompt = enhance_prompt_for_content_type(prompt, content_type)
 
         # ✅ Generate response
-        response = model.generate_content(
-            enhanced_prompt,
-            generation_config={"temperature": temperature},
-        )
+        response = model.generate_content(enhanced_prompt)
 
-        if not response or not response.text:
-            raise ValueError("Empty response from Gemini")
+# Gemini 2.5 responses
+        if response.candidates and response.candidates[0].content.parts:
+            response_text = response.candidates[0].content.parts[0].text
+        else:
+            raise ValueError("Empty or invalid response from Gemini")
 
-        content = json.loads(response.text)
+        content = json.loads(response_text)
+
 
         return jsonify({
             'success': True,
