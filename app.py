@@ -10,6 +10,12 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from io import BytesIO
 import tempfile
 
+
+def get_gemini_model(api_key):
+    """Configure Gemini API and return the GenerativeModel instance"""
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-pro")
+
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
