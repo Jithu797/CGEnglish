@@ -61,7 +61,8 @@ def generate_content():
         enhanced_prompt = enhance_prompt_for_content_type(prompt, content_type)
 
         # ✅ Use Gemini 1.5 Pro model
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
 
         response = model.generate_content(
             enhanced_prompt,
