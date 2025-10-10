@@ -10,34 +10,42 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from io import BytesIO
 import tempfile
 
-# Configure logging
+# ============================
+# Flask & Logging setup
+# ============================
 logging.basicConfig(level=logging.DEBUG)
-
-# Create Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev_secret_key_for_replit")
 CORS(app)
 
+# ============================
+# Gemini Model Configuration
+# ============================
+MODEL_NAME = "models/gemini-2.5-pro"   # ✅ confirmed available
+gemini_model = None
+
 def get_gemini_model(api_key):
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("models/gemini-2.5-flash")
+    """Initialize and return the Gemini model."""
+    global gemini_model
+    if gemini_model is None:
+        genai.configure(api_key=api_key)
+        gemini_model = genai.GenerativeModel(MODEL_NAME)
+    return gemini_model
 
-
-
-
+# ============================
+# Routes
+# ============================
 @app.route('/')
 def dashboard():
-    """Home dashboard displaying predefined topics"""
     return render_template('dashboard.html')
 
 @app.route('/generator/<topic_id>')
 def generator(topic_id):
-    """Content generation interface for specific topic"""
     return render_template('generator.html', topic_id=topic_id)
 
 @app.route('/api/generate-content', methods=['POST'])
 def generate_content():
-    """Generate educational content using Gemini Pro"""
+    """Generate educational content using Gemini 2.5 Pro"""
     try:
         data = request.json
         if not data:
@@ -53,21 +61,28 @@ def generate_content():
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
 
-        # ✅ Initialize Gemini model
         model = get_gemini_model(api_key)
         enhanced_prompt = enhance_prompt_for_content_type(prompt, content_type)
 
-        # ✅ Generate response
-        response = model.generate_content(enhanced_prompt)
+        response = model.generate_content(
+            enhanced_prompt,
+            generation_config=genai.types.GenerationConfig(
+                temperature=temperature
+            )
+        )
 
-# Gemini 2.5 responses
+        # ✅ Handle Gemini 2.5 response structure safely
         if response.candidates and response.candidates[0].content.parts:
-            response_text = response.candidates[0].content.parts[0].text
+            raw_text = response.candidates[0].content.parts[0].text.strip()
         else:
-            raise ValueError("Empty or invalid response from Gemini")
+            raise ValueError("Empty response from Gemini")
 
-        content = json.loads(response_text)
-
+        # ✅ Try to parse JSON
+        try:
+            content = json.loads(raw_text)
+        except json.JSONDecodeError:
+            logging.warning("Model response was not valid JSON. Returning as plain text.")
+            content = {"text": raw_text}
 
         return jsonify({
             'success': True,
@@ -77,108 +92,62 @@ def generate_content():
 
     except Exception as e:
         logging.error(f"Error generating content: {e}")
-        return jsonify({'error': f'Failed to generate content: {str(e)}'}), 500
+        return jsonify({
+            'error': f'Failed to generate content: {str(e)}',
+            'error_type': 'generation_error'
+        }), 500
 
-
-# ✅ Enhance Prompt Function
+# ============================
+# Prompt Enhancer
+# ============================
 def enhance_prompt_for_content_type(prompt, content_type):
-    """Enhance the prompt based on content type for better structured output"""
+    """Enhance the prompt with strict JSON output instructions."""
     content_type_instructions = {
         'mcq': '''
-Generate multiple choice questions with the following JSON structure:
+Return the output strictly in valid JSON. Do not include any text outside the JSON.
+Use this structure:
 {
-    "title": "Topic Title",
-    "questions": [
-        {
-            "question": "Question text",
-            "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-            "correct_answer": "A",
-            "explanation": "Explanation for the correct answer"
-        }
-    ]
+  "title": "Topic Title",
+  "questions": [
+    {
+      "question": "Question text",
+      "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
+      "correct_answer": "A",
+      "explanation": "Why this answer is correct"
+    }
+  ]
 }
 ''',
         'cheat_sheet': '''
-Generate a comprehensive cheat sheet with the following JSON structure:
+Return valid JSON only. Structure:
 {
-    "title": "Cheat Sheet Title",
-    "sections": [
-        {
-            "heading": "Section Title",
-            "content": [
-                "Key point 1",
-                "Key point 2",
-                "Key point 3"
-            ]
-        }
-    ],
-    "quick_tips": ["Tip 1", "Tip 2", "Tip 3"]
-}
-''',
-        'drag_drop': '''
-Generate drag and drop matching activities with the following JSON structure:
-{
-    "title": "Activity Title",
-    "instructions": "Match the items on the left with the correct items on the right",
-    "items": [
-        {
-            "left": "Item to match",
-            "right": "Correct match"
-        }
-    ]
+  "title": "Cheat Sheet Title",
+  "sections": [
+    {"heading": "Section Title", "content": ["Point 1", "Point 2"]}
+  ],
+  "quick_tips": ["Tip 1", "Tip 2"]
 }
 ''',
         'textual': '''
-Generate textual questions and exercises with the following JSON structure:
+Return valid JSON only. Structure:
 {
-    "title": "Exercise Title",
-    "questions": [
-        {
-            "type": "short_answer",
-            "question": "Question text",
-            "sample_answer": "Expected answer or key points"
-        },
-        {
-            "type": "essay",
-            "question": "Essay question",
-            "guidelines": "Guidelines for answering"
-        }
-    ]
-}
-''',
-        'listening': '''
-Generate listening exercise content with the following JSON structure:
-{
-    "title": "Listening Exercise Title",
-    "audio_description": "Description of the audio content (since actual audio cannot be generated)",
-    "pre_listening": [
-        "Pre-listening question 1",
-        "Pre-listening question 2"
-    ],
-    "while_listening": [
-        {
-            "question": "While listening question",
-            "type": "multiple_choice",
-            "options": ["A) Option 1", "B) Option 2", "C) Option 3"],
-            "correct_answer": "A"
-        }
-    ],
-    "post_listening": [
-        "Post-listening discussion question 1",
-        "Post-listening discussion question 2"
-    ]
+  "title": "Exercise Title",
+  "questions": [
+    {"type": "short_answer", "question": "Q", "sample_answer": "Expected"},
+    {"type": "essay", "question": "Q", "guidelines": "Guidelines"}
+  ]
 }
 '''
     }
 
     instruction = content_type_instructions.get(content_type, content_type_instructions['mcq'])
-    return f"{prompt}\n\n{instruction}\n\nEnsure the response is valid JSON format."
+    return f"{prompt}\n\n{instruction}"
 
-
-# ✅ Export to Excel
+# ============================
+# Excel & JSON Export
+# ============================
 @app.route('/api/export-excel', methods=['POST'])
 def export_excel():
-    """Export generated content to Excel file"""
     try:
         data = request.json
         if not data:
@@ -210,16 +179,13 @@ def export_excel():
         title_cell.alignment = Alignment(horizontal='center')
         row += 2
 
+        # Export based on content type
         if content_type == 'mcq':
             export_mcq_to_excel(ws, content, row, header_font, normal_font, header_fill)
         elif content_type == 'cheat_sheet':
             export_cheat_sheet_to_excel(ws, content, row, header_font, normal_font, header_fill)
-        elif content_type == 'drag_drop':
-            export_drag_drop_to_excel(ws, content, row, header_font, normal_font, header_fill)
         elif content_type == 'textual':
             export_textual_to_excel(ws, content, row, header_font, normal_font, header_fill)
-        elif content_type == 'listening':
-            export_listening_to_excel(ws, content, row, header_font, normal_font, header_fill)
 
         for column in ws.columns:
             max_length = 0
@@ -249,14 +215,11 @@ def export_excel():
         )
 
     except Exception as e:
-        logging.error(f"Error exporting to Excel: {e}")
+        logging.error(f"Error exporting to Excel: {str(e)}")
         return jsonify({'error': f'Failed to export to Excel: {str(e)}'}), 500
 
-
-# ✅ Export to JSON
 @app.route('/api/export-json', methods=['POST'])
 def export_json():
-    """Export generated content to JSON file"""
     try:
         data = request.json
         if not data:
@@ -280,6 +243,7 @@ def export_json():
         }
 
         json_content = json.dumps(json_export, indent=2, ensure_ascii=False)
+
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w', encoding='utf-8')
         temp_file.write(json_content)
         temp_file.close()
@@ -292,11 +256,12 @@ def export_json():
         )
 
     except Exception as e:
-        logging.error(f"Error exporting to JSON: {e}")
+        logging.error(f"Error exporting to JSON: {str(e)}")
         return jsonify({'error': f'Failed to export to JSON: {str(e)}'}), 500
 
-
-# Excel helper functions (unchanged)
+# ============================
+# Export helpers
+# ============================
 def export_mcq_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
     row = start_row
     headers = ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer', 'Explanation']
@@ -305,7 +270,8 @@ def export_mcq_to_excel(ws, content, start_row, header_font, normal_font, header
         cell.font = header_font
         cell.fill = header_fill
     row += 1
-    for q in content.get('questions', []):
+    questions = content.get('questions', [])
+    for q in questions:
         ws.cell(row=row, column=1, value=q.get('question', '')).font = normal_font
         options = q.get('options', [])
         for i, option in enumerate(options[:4], 2):
@@ -339,23 +305,6 @@ def export_cheat_sheet_to_excel(ws, content, start_row, header_font, normal_font
             ws.cell(row=row, column=1, value=f"• {tip}").font = normal_font
             row += 1
 
-def export_drag_drop_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
-    row = start_row
-    ws.merge_cells(f'A{row}:B{row}')
-    inst_cell = ws[f'A{row}']
-    inst_cell.value = content.get('instructions', '')
-    inst_cell.font = header_font
-    row += 2
-    ws.cell(row=row, column=1, value='Left Item').font = header_font
-    ws.cell(row=row, column=1).fill = header_fill
-    ws.cell(row=row, column=2, value='Correct Match').font = header_font
-    ws.cell(row=row, column=2).fill = header_fill
-    row += 1
-    for item in content.get('items', []):
-        ws.cell(row=row, column=1, value=item.get('left', '')).font = normal_font
-        ws.cell(row=row, column=2, value=item.get('right', '')).font = normal_font
-        row += 1
-
 def export_textual_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
     row = start_row
     headers = ['Type', 'Question', 'Sample Answer/Guidelines']
@@ -364,62 +313,16 @@ def export_textual_to_excel(ws, content, start_row, header_font, normal_font, he
         cell.font = header_font
         cell.fill = header_fill
     row += 1
-    for q in content.get('questions', []):
+    questions = content.get('questions', [])
+    for q in questions:
         ws.cell(row=row, column=1, value=q.get('type', '')).font = normal_font
         ws.cell(row=row, column=2, value=q.get('question', '')).font = normal_font
         answer_or_guidelines = q.get('sample_answer', '') or q.get('guidelines', '')
         ws.cell(row=row, column=3, value=answer_or_guidelines).font = normal_font
         row += 1
 
-def export_listening_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
-    row = start_row
-    ws.merge_cells(f'A{row}:C{row}')
-    audio_cell = ws[f'A{row}']
-    audio_cell.value = f"Audio Description: {content.get('audio_description', '')}"
-    audio_cell.font = header_font
-    row += 2
-    if content.get('pre_listening'):
-        ws.cell(row=row, column=1, value='Pre-listening Questions').font = header_font
-        ws.cell(row=row, column=1).fill = header_fill
-        row += 1
-        for q in content.get('pre_listening', []):
-            ws.cell(row=row, column=1, value=f"• {q}").font = normal_font
-            row += 1
-        row += 1
-    if content.get('while_listening'):
-        ws.cell(row=row, column=1, value='While Listening Questions').font = header_font
-        ws.cell(row=row, column=1).fill = header_fill
-        row += 1
-        for q in content.get('while_listening', []):
-            ws.cell(row=row, column=1, value=q.get('question', '')).font = normal_font
-            if q.get('options'):
-                ws.cell(row=row, column=2, value=' | '.join(q.get('options', []))).font = normal_font
-            if q.get('correct_answer'):
-                ws.cell(row=row, column=3, value=f"Answer: {q.get('correct_answer')}").font = normal_font
-            row += 1
-        row += 1
-    if content.get('post_listening'):
-        ws.cell(row=row, column=1, value='Post-listening Questions').font = header_font
-        ws.cell(row=row, column=1).fill = header_fill
-        row += 1
-        for q in content.get('post_listening', []):
-            ws.cell(row=row, column=1, value=f"• {q}").font = normal_font
-            row += 1
-
-
-
-
-@app.route('/api/models')
-def list_models():
-    api_key = request.args.get('api_key')
-    if not api_key:
-        return jsonify({'error': 'Missing api_key query param'}), 400
-
-    genai.configure(api_key=api_key)
-    models = genai.list_models()
-    return jsonify({'available_models': [m.name for m in models]})
-
-
-
+# ============================
+# Run
+# ============================
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
