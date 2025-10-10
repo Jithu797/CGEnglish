@@ -20,8 +20,8 @@ CORS(app)
 
 def get_gemini_model(api_key):
     genai.configure(api_key=api_key)
-    # ✅ use a model from your available list
-    return genai.GenerativeModel("models/gemini-2.5-pro")
+    return genai.GenerativeModel("models/gemini-2.5-flash")
+
 
 
 
