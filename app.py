@@ -10,12 +10,6 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from io import BytesIO
 import tempfile
 
-
-def get_gemini_model(api_key):
-    """Configure Gemini API and return the GenerativeModel instance"""
-    genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-pro")
-
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -24,28 +18,30 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev_secret_key_for_replit")
 CORS(app)
 
-
-# ✅ Configure Gemini globally (new SDK style)
-def configure_gemini(api_key):
+# ✅ Configure Gemini Model (new API)
+def get_gemini_model(api_key):
+    """Configure Gemini API and return the GenerativeModel instance"""
     genai.configure(api_key=api_key)
-
+    return genai.GenerativeModel("gemini-pro")
 
 @app.route('/')
 def dashboard():
     """Home dashboard displaying predefined topics"""
     return render_template('dashboard.html')
 
-
 @app.route('/generator/<topic_id>')
 def generator(topic_id):
     """Content generation interface for specific topic"""
     return render_template('generator.html', topic_id=topic_id)
 
-
 @app.route('/api/generate-content', methods=['POST'])
 def generate_content():
+    """Generate educational content using Gemini Pro"""
     try:
         data = request.json
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
         api_key = data.get('api_key')
         prompt = data.get('prompt')
         temperature = float(data.get('temperature', 0.7))
@@ -56,9 +52,11 @@ def generate_content():
         if not prompt:
             return jsonify({'error': 'Prompt is required'}), 400
 
+        # ✅ Initialize Gemini model
         model = get_gemini_model(api_key)
         enhanced_prompt = enhance_prompt_for_content_type(prompt, content_type)
 
+        # ✅ Generate response
         response = model.generate_content(
             enhanced_prompt,
             generation_config={"temperature": temperature},
@@ -68,16 +66,21 @@ def generate_content():
             raise ValueError("Empty response from Gemini")
 
         content = json.loads(response.text)
-        return jsonify({'success': True, 'content': content, 'content_type': content_type})
+
+        return jsonify({
+            'success': True,
+            'content': content,
+            'content_type': content_type
+        })
 
     except Exception as e:
         logging.error(f"Error generating content: {e}")
         return jsonify({'error': f'Failed to generate content: {str(e)}'}), 500
 
 
+# ✅ Enhance Prompt Function
 def enhance_prompt_for_content_type(prompt, content_type):
     """Enhance the prompt based on content type for better structured output"""
-
     content_type_instructions = {
         'mcq': '''
 Generate multiple choice questions with the following JSON structure:
@@ -170,44 +173,7 @@ Generate listening exercise content with the following JSON structure:
     return f"{prompt}\n\n{instruction}\n\nEnsure the response is valid JSON format."
 
 
-def generate_sample_content(content_type):
-    """Generate sample content for demonstration when API quota is exceeded"""
-    sample_content = {
-        'mcq': {
-            "title": "Business Communication - Sample Questions",
-            "questions": [
-                {
-                    "question": "What is the most professional way to start a business email?",
-                    "options": [
-                        "A) Hey there!",
-                        "B) Dear Sir/Madam,",
-                        "C) Hi everyone,",
-                        "D) To whom it may concern,"
-                    ],
-                    "correct_answer": "B",
-                    "explanation": "Dear Sir/Madam is the most formal and professional greeting when you don't know the recipient's name."
-                },
-                {
-                    "question": "Which phrase is most appropriate for requesting information in a formal email?",
-                    "options": [
-                        "A) I need to know...",
-                        "B) Tell me about...",
-                        "C) I would appreciate if you could provide...",
-                        "D) Give me details on..."
-                    ],
-                    "correct_answer": "C",
-                    "explanation": "Using 'I would appreciate if you could provide' shows politeness and professionalism in formal business communication."
-                }
-            ]
-        }
-    }
-    return sample_content.get(content_type, sample_content['mcq'])
-
-
-# ============================
-# ✅ Excel Export Functions
-# ============================
-
+# ✅ Export to Excel
 @app.route('/api/export-excel', methods=['POST'])
 def export_excel():
     """Export generated content to Excel file"""
@@ -244,8 +210,15 @@ def export_excel():
 
         if content_type == 'mcq':
             export_mcq_to_excel(ws, content, row, header_font, normal_font, header_fill)
+        elif content_type == 'cheat_sheet':
+            export_cheat_sheet_to_excel(ws, content, row, header_font, normal_font, header_fill)
+        elif content_type == 'drag_drop':
+            export_drag_drop_to_excel(ws, content, row, header_font, normal_font, header_fill)
+        elif content_type == 'textual':
+            export_textual_to_excel(ws, content, row, header_font, normal_font, header_fill)
+        elif content_type == 'listening':
+            export_listening_to_excel(ws, content, row, header_font, normal_font, header_fill)
 
-        # Auto adjust column widths
         for column in ws.columns:
             max_length = 0
             column_letter = column[0].column_letter
@@ -255,7 +228,8 @@ def export_excel():
                         max_length = len(str(cell.value))
                 except:
                     pass
-            ws.column_dimensions[column_letter].width = min(max_length + 2, 50)
+            adjusted_width = min(max_length + 2, 50)
+            ws.column_dimensions[column_letter].width = adjusted_width
 
         excel_file = BytesIO()
         wb.save(excel_file)
@@ -273,31 +247,11 @@ def export_excel():
         )
 
     except Exception as e:
-        logging.error(f"Error exporting to Excel: {str(e)}")
+        logging.error(f"Error exporting to Excel: {e}")
         return jsonify({'error': f'Failed to export to Excel: {str(e)}'}), 500
 
 
-def export_mcq_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
-    """Export MCQ content to Excel"""
-    row = start_row
-    headers = ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer', 'Explanation']
-    for col, header in enumerate(headers, 1):
-        cell = ws.cell(row=row, column=col, value=header)
-        cell.font = header_font
-        cell.fill = header_fill
-    row += 1
-
-    questions = content.get('questions', [])
-    for q in questions:
-        ws.cell(row=row, column=1, value=q.get('question', '')).font = normal_font
-        options = q.get('options', [])
-        for i, option in enumerate(options[:4], 2):
-            ws.cell(row=row, column=i, value=option).font = normal_font
-        ws.cell(row=row, column=6, value=q.get('correct_answer', '')).font = normal_font
-        ws.cell(row=row, column=7, value=q.get('explanation', '')).font = normal_font
-        row += 1
-
-
+# ✅ Export to JSON
 @app.route('/api/export-json', methods=['POST'])
 def export_json():
     """Export generated content to JSON file"""
@@ -324,7 +278,6 @@ def export_json():
         }
 
         json_content = json.dumps(json_export, indent=2, ensure_ascii=False)
-
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='w', encoding='utf-8')
         temp_file.write(json_content)
         temp_file.close()
@@ -337,8 +290,119 @@ def export_json():
         )
 
     except Exception as e:
-        logging.error(f"Error exporting to JSON: {str(e)}")
+        logging.error(f"Error exporting to JSON: {e}")
         return jsonify({'error': f'Failed to export to JSON: {str(e)}'}), 500
+
+
+# Excel helper functions (unchanged)
+def export_mcq_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
+    row = start_row
+    headers = ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer', 'Explanation']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+    row += 1
+    for q in content.get('questions', []):
+        ws.cell(row=row, column=1, value=q.get('question', '')).font = normal_font
+        options = q.get('options', [])
+        for i, option in enumerate(options[:4], 2):
+            ws.cell(row=row, column=i, value=option).font = normal_font
+        ws.cell(row=row, column=6, value=q.get('correct_answer', '')).font = normal_font
+        ws.cell(row=row, column=7, value=q.get('explanation', '')).font = normal_font
+        row += 1
+
+def export_cheat_sheet_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
+    row = start_row
+    sections = content.get('sections', [])
+    for section in sections:
+        ws.merge_cells(f'A{row}:C{row}')
+        heading_cell = ws[f'A{row}']
+        heading_cell.value = section.get('heading', '')
+        heading_cell.font = header_font
+        heading_cell.fill = header_fill
+        row += 1
+        for item in section.get('content', []):
+            ws.cell(row=row, column=1, value=f"• {item}").font = normal_font
+            row += 1
+        row += 1
+    if content.get('quick_tips'):
+        ws.merge_cells(f'A{row}:C{row}')
+        tips_cell = ws[f'A{row}']
+        tips_cell.value = "Quick Tips"
+        tips_cell.font = header_font
+        tips_cell.fill = header_fill
+        row += 1
+        for tip in content.get('quick_tips', []):
+            ws.cell(row=row, column=1, value=f"• {tip}").font = normal_font
+            row += 1
+
+def export_drag_drop_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
+    row = start_row
+    ws.merge_cells(f'A{row}:B{row}')
+    inst_cell = ws[f'A{row}']
+    inst_cell.value = content.get('instructions', '')
+    inst_cell.font = header_font
+    row += 2
+    ws.cell(row=row, column=1, value='Left Item').font = header_font
+    ws.cell(row=row, column=1).fill = header_fill
+    ws.cell(row=row, column=2, value='Correct Match').font = header_font
+    ws.cell(row=row, column=2).fill = header_fill
+    row += 1
+    for item in content.get('items', []):
+        ws.cell(row=row, column=1, value=item.get('left', '')).font = normal_font
+        ws.cell(row=row, column=2, value=item.get('right', '')).font = normal_font
+        row += 1
+
+def export_textual_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
+    row = start_row
+    headers = ['Type', 'Question', 'Sample Answer/Guidelines']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=row, column=col, value=header)
+        cell.font = header_font
+        cell.fill = header_fill
+    row += 1
+    for q in content.get('questions', []):
+        ws.cell(row=row, column=1, value=q.get('type', '')).font = normal_font
+        ws.cell(row=row, column=2, value=q.get('question', '')).font = normal_font
+        answer_or_guidelines = q.get('sample_answer', '') or q.get('guidelines', '')
+        ws.cell(row=row, column=3, value=answer_or_guidelines).font = normal_font
+        row += 1
+
+def export_listening_to_excel(ws, content, start_row, header_font, normal_font, header_fill):
+    row = start_row
+    ws.merge_cells(f'A{row}:C{row}')
+    audio_cell = ws[f'A{row}']
+    audio_cell.value = f"Audio Description: {content.get('audio_description', '')}"
+    audio_cell.font = header_font
+    row += 2
+    if content.get('pre_listening'):
+        ws.cell(row=row, column=1, value='Pre-listening Questions').font = header_font
+        ws.cell(row=row, column=1).fill = header_fill
+        row += 1
+        for q in content.get('pre_listening', []):
+            ws.cell(row=row, column=1, value=f"• {q}").font = normal_font
+            row += 1
+        row += 1
+    if content.get('while_listening'):
+        ws.cell(row=row, column=1, value='While Listening Questions').font = header_font
+        ws.cell(row=row, column=1).fill = header_fill
+        row += 1
+        for q in content.get('while_listening', []):
+            ws.cell(row=row, column=1, value=q.get('question', '')).font = normal_font
+            if q.get('options'):
+                ws.cell(row=row, column=2, value=' | '.join(q.get('options', []))).font = normal_font
+            if q.get('correct_answer'):
+                ws.cell(row=row, column=3, value=f"Answer: {q.get('correct_answer')}").font = normal_font
+            row += 1
+        row += 1
+    if content.get('post_listening'):
+        ws.cell(row=row, column=1, value='Post-listening Questions').font = header_font
+        ws.cell(row=row, column=1).fill = header_fill
+        row += 1
+        for q in content.get('post_listening', []):
+            ws.cell(row=row, column=1, value=f"• {q}").font = normal_font
+            row += 1
 
 
 if __name__ == '__main__':
