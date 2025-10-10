@@ -22,7 +22,8 @@ CORS(app)
 def get_gemini_model(api_key):
     """Configure Gemini API and return the GenerativeModel instance"""
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("gemini-pro")
+    return genai.GenerativeModel("gemini-1.5-pro")   # ✅ or gemini-1.5-flash depending on your key
+
 
 @app.route('/')
 def dashboard():
@@ -403,6 +404,18 @@ def export_listening_to_excel(ws, content, start_row, header_font, normal_font, 
         for q in content.get('post_listening', []):
             ws.cell(row=row, column=1, value=f"• {q}").font = normal_font
             row += 1
+
+
+@app.route('/api/models')
+def list_models():
+    """List all available Gemini models for this API key"""
+    api_key = request.args.get('api_key')
+    if not api_key:
+        return jsonify({'error': 'Missing api_key query param'}), 400
+
+    genai.configure(api_key=api_key)
+    models = genai.list_models()
+    return jsonify({'available_models': [m.name for m in models]})
 
 
 if __name__ == '__main__':
